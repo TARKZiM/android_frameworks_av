@@ -39,6 +39,7 @@ cc_library_shared {
     name: "libcameraservice",
     defaults: [
         "has_camera_hal1_defaults",
+        "qti_camera_device_defaults",
     ],
 
     // Camera service source
@@ -150,8 +151,12 @@ cc_library_shared {
         "android.hardware.camera.provider@2.4",
         "android.hardware.camera.provider@2.5",
         "android.hardware.camera.provider@2.6",
+<<<<<<< HEAD
         "android.hardware.camera.provider@2.7",
         "vendor.qti.hardware.camera.device@1.0",
+=======
+        "android.hardware.camera.device@1.0",
+>>>>>>> e9491d3c36... camera: Only link and use vendor.qti.hardware.camera.device if specified
         "android.hardware.camera.device@3.2",
         "android.hardware.camera.device@3.3",
         "android.hardware.camera.device@3.4",
