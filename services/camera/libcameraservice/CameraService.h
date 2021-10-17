@@ -72,6 +72,9 @@ class CameraService :
     public virtual CameraProviderManager::StatusListener
 {
     friend class BinderService<CameraService>;
+#ifdef TARGET_USES_CAMERA_HAL1
+    friend class CameraClient;
+#endif
     friend class CameraOfflineSessionClient;
 public:
     class Client;
