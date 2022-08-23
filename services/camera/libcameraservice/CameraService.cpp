@@ -25,6 +25,10 @@
 #include <cstring>
 #include <ctime>
 #include <string>
+#ifdef CAMERA_NEEDS_CLIENT_INFO
+#include <iostream>
+#include <fstream>
+#endif
 #include <sys/types.h>
 #include <inttypes.h>
 #include <pthread.h>
@@ -35,6 +39,7 @@
 
 #include <android-base/macros.h>
 #include <android-base/parseint.h>
+#include <android-base/properties.h>
 #include <android-base/stringprintf.h>
 #include <binder/ActivityManager.h>
 #include <binder/AppOpsManager.h>
@@ -78,6 +83,10 @@
 #include "utils/CameraThreadState.h"
 #include "utils/CameraServiceProxyWrapper.h"
 
+#ifdef CAMERA_NEEDS_CLIENT_INFO_LIB
+#include <vendor/oneplus/hardware/camera/1.0/IOnePlusCameraProvider.h>
+#endif
+
 namespace {
     const char* kPermissionServiceName = "permission";
 }; // namespace anonymous
@@ -85,6 +94,7 @@ namespace {
 namespace android {
 
 using base::StringPrintf;
+using base::SetProperty;
 using binder::Status;
 using namespace camera3;
 using frameworks::cameraservice::service::V2_0::implementation::HidlCameraService;
@@ -95,6 +105,9 @@ using hardware::camera2::ICameraInjectionCallback;
 using hardware::camera2::ICameraInjectionSession;
 using hardware::camera2::utils::CameraIdAndSessionConfiguration;
 using hardware::camera2::utils::ConcurrentCameraIdCombination;
+#ifdef CAMERA_NEEDS_CLIENT_INFO_LIB
+using ::vendor::oneplus::hardware::camera::V1_0::IOnePlusCameraProvider;
+#endif
 
 // ----------------------------------------------------------------------------
 // Logging support -- this is for debugging only
@@ -135,6 +148,10 @@ const char *sFileName = "lastOpenSessionDumpFile";
 static constexpr int32_t kSystemNativeClientScore = resource_policy::PERCEPTIBLE_APP_ADJ;
 static constexpr int32_t kSystemNativeClientState =
         ActivityManager::PROCESS_STATE_PERSISTENT_UI;
+
+#ifdef CAMERA_NEEDS_CLIENT_INFO_LIB
+static const sp<IOnePlusCameraProvider> gVendorCameraProviderService = IOnePlusCameraProvider::getService();
+#endif
 
 const String8 CameraService::kOfflineDevice("offline-");
 const String16 CameraService::kWatchAllClientsFlag("all");
@@ -640,9 +657,8 @@ void CameraService::onTorchStatusChangedLocked(const String8& cameraId,
 
 static bool hasPermissionsForSystemCamera(int callingPid, int callingUid,
         bool logPermissionFailure = false) {
-    return checkPermission(sSystemCameraPermission, callingPid, callingUid,
-            logPermissionFailure) &&
-            checkPermission(sCameraPermission, callingPid, callingUid);
+    return checkPermission(sCameraPermission, callingPid, callingUid,
+            logPermissionFailure);
 }
 
 Status CameraService::getNumberOfCameras(int32_t type, int32_t* numCameras) {
@@ -1063,7 +1079,11 @@ int32_t CameraService::mapToInterface(StatusInternal status) {
 Status CameraService::initializeShimMetadata(int cameraId) {
     int uid = CameraThreadState::getCallingUid();
 
+#ifdef NO_CAMERA_SERVER
+    String16 internalPackageName("media");
+#else
     String16 internalPackageName("cameraserver");
+#endif
     String8 id = String8::format("%d", cameraId);
     Status ret = Status::ok();
     sp<Client> tmp = nullptr;
@@ -1144,7 +1164,9 @@ Status CameraService::getLegacyParametersLazy(int cameraId,
 static bool isTrustedCallingUid(uid_t uid) {
     switch (uid) {
         case AID_MEDIA:        // mediaserver
+#ifndef NO_CAMERA_SERVER
         case AID_CAMERASERVER: // cameraserver
+#endif
         case AID_RADIO:        // telephony
             return true;
         default:
@@ -1277,6 +1299,7 @@ Status CameraService::validateClientPermissionsLocked(const String8& cameraId,
                 clientName8.string(), clientUid, clientPid, cameraId.string());
     }
 
+#ifndef NO_CAMERA_SERVER
     // Make sure the UID is in an active state to use the camera
     if (!mUidPolicy->isUidActive(callingUid, String16(clientName8))) {
         int32_t procState = mUidPolicy->getProcState(callingUid);
@@ -1288,6 +1311,7 @@ Status CameraService::validateClientPermissionsLocked(const String8& cameraId,
                 clientName8.string(), clientUid, clientPid, cameraId.string(),
                 callingUid, procState);
     }
+#endif
 
     // If sensor privacy is enabled then prevent access to the camera
     if (mSensorPrivacyPolicy->isSensorPrivacyEnabled()) {
@@ -3464,6 +3488,15 @@ status_t CameraService::BasicClient::startCameraOps() {
 
     mOpsActive = true;
 
+    // Configure miui camera mode
+    if (strcmp(String8(mClientPackageName).string(), "com.android.camera") == 0) {
+        SetProperty("sys.camera.miui.apk", "1");
+        ALOGI("Enabling miui camera mode");
+    } else {
+        SetProperty("sys.camera.miui.apk", "0");
+        ALOGI("Disabling miui camera mode");
+    }
+
     // Transition device availability listeners from PRESENT -> NOT_AVAILABLE
     sCameraService->updateStatus(StatusInternal::NOT_AVAILABLE, mCameraIdStr);
 
@@ -3472,6 +3505,9 @@ status_t CameraService::BasicClient::startCameraOps() {
     // Notify listeners of camera open/close status
     sCameraService->updateOpenCloseStatus(mCameraIdStr, true/*open*/, mClientPackageName);
 
+#ifdef CAMERA_NEEDS_CLIENT_INFO_LIB
+    gVendorCameraProviderService->setPackageName(String8(mClientPackageName).string());
+#endif
     return OK;
 }
 
