@@ -207,6 +207,7 @@ status_t CameraDeviceClient::initializeImpl(TProviderPtr providerPtr, const Stri
             mHighResolutionSensors.insert(physicalId.c_str());
         }
     }
+    mDevice->setPrivilegedClient(mPrivilegedClient);
     return OK;
 }
 
